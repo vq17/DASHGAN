@@ -14,7 +14,8 @@ from torch.autograd import Variable
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-
+import zlib
+import base64
 import math
 
 import models.dcgan as dcgan
@@ -22,14 +23,55 @@ import models.mlp as mlp
 import json
 
 #Run with "python main.py"
+rootDir = "..\\..\\..\\AppData\\Local\\dash_early_access\\global_levels\\"
+def parseLevels(rootDir, n=32):
+    levels = os.walk(rootDir)
+    levels = levels.__next__()[2]
+    arr = []
+    for level in levels:
+        filename = rootDir + level
+        print(filename)
+        if level == "hit the ceiling.sav" or level == "kind of friendly too.sav" or level == "kind of frienly start.sav" or level == "over and under.sav":
+            continue
+        with open(filename, "rb") as f:
+            bytes_read = f.read()
+        tmp = base64.b64decode(bytes_read)
+        blob = zlib.decompress(tmp)
+        tmp2 = parseLevel(blob, n=n)
+        arr.append(tmp2)
+    return np.concatenate(arr, axis=0)
+
+def parseLevel(blob, x0=16, y0=16, n=32, m=3):
+    lvlArr = np.zeros((m,n,n),dtype=np.int)
+    xmin = int(x0 - n/2)
+    xmax = int(x0 + n/2)
+    ymin = int(y0 - n/2)
+    ymax = int(y0 + n/2)
+    for element in blob.decode().split('<sep_json>'):
+        if len(element) == 0:
+            continue
+        if len(element) > 1250:
+            print(element)
+            continue
+#         print(len(element))
+        tmp = json.loads(element)
+#         print(tmp['x']/32," ", tmp['y']/32)
+        for i in range(m):
+            if tmp['x'] in range(xmin * 32 + i, xmax * 32 + i) and tmp['y'] in range(ymin * 32, ymax * 32):
+                lvlArr[i,int(tmp['x']/32-xmin - i), int(tmp['y']/32 - ymin)] = int(tmp['tileNum'])
+#             print("hit! ", tmp['tileType'])
+    lvlArr = np.delete(lvlArr, np.nonzero(np.count_nonzero(lvlArr, axis=(1, 2)) < 20), axis=0)
+    lvlArr[lvlArr == 44] = 12
+    lvlArr[lvlArr > 6] -= 1
+    return lvlArr
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--nz', type=int, default=32, help='size of the latent z vector')
 parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ndf', type=int, default=64)
 parser.add_argument('--batchSize', type=int, default=32, help='input batch size')
-parser.add_argument('--niter', type=int, default=5000, help='number of epochs to train for')
-parser.add_argument('--lrD', type=float, default=0.00005, help='learning rate for Critic, default=0.00005')
+parser.add_argument('--niter', type=int, default=50000, help='number of epochs to train for')
+parser.add_argument('--lrD', type=float, default=0.00002, help='learning rate for Critic, default=0.00005')
 parser.add_argument('--lrG', type=float, default=0.00005, help='learning rate for Generator, default=0.00005')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument('--cuda'  , action='store_true', help='enables cuda')
@@ -56,25 +98,41 @@ print("Random Seed: ", opt.manualSeed)
 random.seed(opt.manualSeed)
 torch.manual_seed(opt.manualSeed)
 
-cudnn.benchmark = True
+#cudnn.benchmark = True
 
 if torch.cuda.is_available() and not opt.cuda:
     print("WARNING: You have a CUDA device, so you should probably run with --cuda")
- 
+
 map_size = 32
 
-if opt.problem == 0:
-    examplesJson = "example.json"
+#examplesJson= "sepEx/examplemario{}.json".format(opt.problem)
+#examplesJson = "example.json"
+#X = np.array ( json.load(open(examplesJson)) )
+
+#filename = rootDir + levels[opt.problem]
+#print(filename)
+#with open(filename, "rb") as f:
+#    bytes_read = f.read()
+#tmp = base64.b64decode(bytes_read)
+
+#blob = zlib.decompress(tmp)
+
+preProcData = "dataPreProc.npy"
+if os.path.isfile(preProcData):
+    X = np.load(preProcData)
 else:
-    examplesJson= "sepEx/examplemario{}.json".format(opt.problem)
-X = np.array ( json.load(open(examplesJson)) )
+    X = parseLevels(rootDir)
+    np.save(preProcData, X)
 print(X)
 print(X.shape)
-z_dims = 10 #Numer different title types
+alphab = np.unique(X[np.nonzero(X)])
+print(alphab)
+
+z_dims = len(alphab) + 1 #Numer different tile types
 
 num_batches = X.shape[0] / opt.batchSize
 
-print ("SHAPE ",X.shape) 
+print ("SHAPE ",X.shape)
 X_onehot = np.eye(z_dims, dtype='uint8')[X]
 
 X_onehot = np.rollaxis(X_onehot, 3, 1)
@@ -82,7 +140,7 @@ print ("SHAPE ",X_onehot.shape)    #(173, 14, 28, 16)
 
 X_train = np.zeros ( (X.shape[0], z_dims, map_size, map_size) )*2
 
-X_train[:, 2, :, :] = 1.0  #Fill with empty space
+X_train[:, 2, :, :] = 0  #Fill with empty space
 
 #Pad part of level so its a square
 X_train[:X.shape[0], :, :X.shape[1], :X.shape[2]] = X_onehot
@@ -153,10 +211,12 @@ if opt.adam:
 else:
     optimizerD = optim.RMSprop(netD.parameters(), lr = opt.lrD)
     optimizerG = optim.RMSprop(netG.parameters(), lr = opt.lrG)
-
+lambda1 = lambda epoch: 0.9999 ** epoch
+lrSchedulerG = torch.optim.lr_scheduler.LambdaLR(optimizerG, lr_lambda=lambda1)
+lrSchedulerD = torch.optim.lr_scheduler.LambdaLR(optimizerD, lr_lambda=lambda1)
 gen_iterations = 0
 for epoch in range(opt.niter):
-    
+
     #! data_iter = iter(dataloader)
 
     X_train = X_train[torch.randperm( len(X_train) )]
@@ -195,7 +255,7 @@ for epoch in range(opt.niter):
                 print(real_cpu)
                 plt.imsave('{0}/real_samples.png'.format(opt.experiment), real_cpu)
                 exit()
-           
+
             netD.zero_grad()
             #batch_size = num_samples #real_cpu.size(0)
 
@@ -210,12 +270,14 @@ for epoch in range(opt.niter):
 
             # train with fake
             noise.resize_(opt.batchSize, nz, 1, 1).normal_(0, 1)
-            noisev = Variable(noise, volatile = True) # totally freeze netG
-            fake = Variable(netG(noisev).data)
+            with torch.no_grad():
+                noisev = Variable(noise) # totally freeze netG
+                fake = Variable(netG(noisev).data)
             inputv = fake
             errD_fake = netD(inputv)
             errD_fake.backward(mone)
             errD = errD_real - errD_fake
+            #lrSchedulerD.step(errD.data[0])
             optimizerD.step()
 
         ############################
@@ -228,28 +290,34 @@ for epoch in range(opt.niter):
         # make sure we feed a full batch of noise
         noise.resize_(opt.batchSize, nz, 1, 1).normal_(0, 1)
         noisev = Variable(noise)
+        #with torch.no_grad():
         fake = netG(noisev)
         errG = netD(fake)
         errG.backward(one)
+        #lrSchedulerG.step(errG.data[0])
+
         optimizerG.step()
+
         gen_iterations += 1
 
         print('[%d/%d][%d/%d][%d] Loss_D: %f Loss_G: %f Loss_D_real: %f Loss_D_fake %f'
             % (epoch, opt.niter, i, num_batches, gen_iterations,
             errD.data[0], errG.data[0], errD_real.data[0], errD_fake.data[0]))
-        if gen_iterations % 50 == 0:   #was 500
+        if gen_iterations % 10 == 0:   #was 500
+            with torch.no_grad():
+                fake = netG(Variable(fixed_noise))
 
-            fake = netG(Variable(fixed_noise, volatile=True))
-            
             im = fake.data.cpu().numpy()
             #print('SHAPE fake',type(im), im.shape)
             #print('SUM ',np.sum( im, axis = 1) )
 
             im = combine_images( tiles2image( np.argmax( im, axis = 1) ) )
 
-            plt.imsave('{0}/mario_fake_samples_{1}.png'.format(opt.experiment, gen_iterations), im)
+            plt.imsave('{0}/dash_fake_samples_{1}.png'.format(opt.experiment, gen_iterations), im)
             torch.save(netG.state_dict(), '{0}/netG_epoch_{1}_{2}_{3}.pth'.format(opt.experiment, gen_iterations, opt.problem, opt.nz))
 
     # do checkpointing
     #torch.save(netG.state_dict(), '{0}/netG_epoch_{1}.pth'.format(opt.experiment, epoch))
     #torch.save(netD.state_dict(), '{0}/netD_epoch_{1}.pth'.format(opt.experiment, epoch))
+torch.save(netG.state_dict(), '{0}/netG_epoch_{1}.pth'.format(opt.experiment, epoch))
+torch.save(netD.state_dict(), '{0}/netD_epoch_{1}.pth'.format(opt.experiment, epoch))
