@@ -21,7 +21,7 @@ import math
 import models.dcgan as dcgan
 import models.mlp as mlp
 import json
-
+# python main.py --experiment=D:\NeuralNets\YoGo2 --n_extra_layers=5000 --cuda --niter=100python main.py --experiment=D:\NeuralNets\YoGo2 --n_extra_layers=5000 --cuda --niter=100
 #Run with "python main.py"
 rootDir = "..\\..\\..\\AppData\\Local\\dash_early_access\\global_levels\\"
 def parseLevels(rootDir, n=32):
@@ -70,9 +70,9 @@ parser.add_argument('--nz', type=int, default=32, help='size of the latent z vec
 parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ndf', type=int, default=64)
 parser.add_argument('--batchSize', type=int, default=32, help='input batch size')
-parser.add_argument('--niter', type=int, default=50000, help='number of epochs to train for')
-parser.add_argument('--lrD', type=float, default=0.00002, help='learning rate for Critic, default=0.00005')
-parser.add_argument('--lrG', type=float, default=0.00005, help='learning rate for Generator, default=0.00005')
+parser.add_argument('--niter', type=int, default=200, help='number of epochs to train for')
+parser.add_argument('--lrD', type=float, default=0.00005, help='learning rate for Critic, default=0.00005')
+parser.add_argument('--lrG', type=float, default=0.0001, help='learning rate for Generator, default=0.00005')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument('--cuda'  , action='store_true', help='enables cuda')
 parser.add_argument('--ngpu'  , type=int, default=1, help='number of GPUs to use')
@@ -273,7 +273,7 @@ for epoch in range(opt.niter):
             with torch.no_grad():
                 noisev = Variable(noise) # totally freeze netG
                 fake = Variable(netG(noisev).data)
-            inputv = fake
+                inputv = fake
             errD_fake = netD(inputv)
             errD_fake.backward(mone)
             errD = errD_real - errD_fake
@@ -314,10 +314,13 @@ for epoch in range(opt.niter):
             im = combine_images( tiles2image( np.argmax( im, axis = 1) ) )
 
             plt.imsave('{0}/dash_fake_samples_{1}.png'.format(opt.experiment, gen_iterations), im)
-            torch.save(netG.state_dict(), '{0}/netG_epoch_{1}_{2}_{3}.pth'.format(opt.experiment, gen_iterations, opt.problem, opt.nz))
+            #torch.save(netG.state_dict(), '{0}/netG_epoch_{1}_{2}_{3}.pth'.format(opt.experiment, gen_iterations, opt.problem, opt.nz))
 
     # do checkpointing
     #torch.save(netG.state_dict(), '{0}/netG_epoch_{1}.pth'.format(opt.experiment, epoch))
     #torch.save(netD.state_dict(), '{0}/netD_epoch_{1}.pth'.format(opt.experiment, epoch))
 torch.save(netG.state_dict(), '{0}/netG_epoch_{1}.pth'.format(opt.experiment, epoch))
 torch.save(netD.state_dict(), '{0}/netD_epoch_{1}.pth'.format(opt.experiment, epoch))
+tracedG = torch.jit.trace(netG.cpu(), fixed_noise.cpu())
+tracedG.save('{0}/netG_epoch_{1}.pt'.format(opt.experiment, epoch))
+torch.save(netG.state_dict(), '{0}/netG_epoch_{1}_{2}_{3}.pth'.format(opt.experiment, gen_iterations, opt.problem, opt.nz))
