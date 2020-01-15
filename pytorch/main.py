@@ -50,19 +50,20 @@ def parseLevel(blob, x0=16, y0=16, n=32, m=3):
     for element in blob.decode().split('<sep_json>'):
         if len(element) == 0:
             continue
-        if len(element) > 1250:
+        if len(element) > 550:
             print(element)
             continue
 #         print(len(element))
+
         tmp = json.loads(element)
 #         print(tmp['x']/32," ", tmp['y']/32)
         for i in range(m):
             if tmp['x'] in range(xmin * 32 + i, xmax * 32 + i) and tmp['y'] in range(ymin * 32, ymax * 32):
-                lvlArr[i,int(tmp['x']/32-xmin - i), int(tmp['y']/32 - ymin)] = int(tmp['tileNum'])
+                lvlArr[i,int(tmp['x']/32-xmin - i), int(tmp['y']/32 - ymin)] = int(tmp['tileNum']) + 1
 #             print("hit! ", tmp['tileType'])
     lvlArr = np.delete(lvlArr, np.nonzero(np.count_nonzero(lvlArr, axis=(1, 2)) < 20), axis=0)
-    lvlArr[lvlArr == 44] = 12
-    lvlArr[lvlArr > 6] -= 1
+    lvlArr[lvlArr == 45] = 13
+    lvlArr[lvlArr > 7] -= 1
     return lvlArr
 
 parser = argparse.ArgumentParser()
