@@ -3,6 +3,6 @@ project(custom_ops)
 
 find_package(Torch REQUIRED)
 
-add_executable(example-app example-app.cpp)
-target_link_libraries(example-app "${TORCH_LIBRARIES}")
-set_property(TARGET example-app PROPERTY CXX_STANDARD 14)
+add_library(DASHGAN SHARED DASHGAN-dylib.cpp)
+target_link_libraries(DASHGAN "${TORCH_LIBRARIES}")
+set_property(TARGET DASHGAN PROPERTY CXX_STANDARD 14)
